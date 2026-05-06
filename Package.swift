@@ -8,9 +8,7 @@ let package = Package(
         .executableTarget(
             name: "App",
             path: "Sources/App",
-            resources: [
-                .process("Resources")
-            ]
+            exclude: ["Resources/Info.plist"]
         )
     ]
 )
