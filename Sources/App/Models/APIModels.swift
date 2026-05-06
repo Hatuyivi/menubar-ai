@@ -50,11 +50,15 @@ enum ModelRegistry {
         AIModel(id: "qwen/qwen2-vl-7b-instruct:free",                      name: "Qwen2 VL 7B (free)",                provider: .openRouter, supportsVision: true, isFreeTier: true),
     ]
 
-    // MARK: Cloudflare Workers AI — vision-only models (img2img excluded: wrong API format)
+    // MARK: Cloudflare Workers AI — confirmed vision models (accept image + text → return text)
     static let cloudflareModels: [AIModel] = [
-        AIModel(id: "@cf/llava-1.5-7b-hf",                        name: "LLaVA 1.5 7B",       provider: .cloudflare, supportsVision: true, isFreeTier: true),
-        AIModel(id: "@cf/unum/uform-gen2-qwen-500m",               name: "UForm Gen2 Qwen",    provider: .cloudflare, supportsVision: true, isFreeTier: true),
-        AIModel(id: "@cf/meta/llama-3.2-11b-vision-instruct",      name: "Llama 3.2 11B Vision", provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/meta/llama-4-scout-17b-16e-instruct",     name: "Llama 4 Scout 17B",       provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/meta/llama-3.2-11b-vision-instruct",      name: "Llama 3.2 11B Vision",    provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/google/gemma-4-26b-a4b-it",               name: "Gemma 4 26B",             provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/mistralai/mistral-small-3.1-24b-instruct", name: "Mistral Small 3.1 24B",  provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/llava-hf/llava-1.5-7b-hf",               name: "LLaVA 1.5 7B",            provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/zai-org/glm-4.7-flash",                   name: "GLM 4.7 Flash",           provider: .cloudflare, supportsVision: true, isFreeTier: true),
+        AIModel(id: "@cf/unum/uform-gen2-qwen-500m",               name: "UForm Gen2 Qwen 500M",    provider: .cloudflare, supportsVision: true, isFreeTier: true),
     ]
 
     static func models(for provider: APIProvider, moduleType: ModuleType) -> [AIModel] {
