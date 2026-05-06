@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 // MARK: - API Provider
 
