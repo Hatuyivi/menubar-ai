@@ -4,13 +4,13 @@ import CoreGraphics
 // MARK: - Screen area selector overlay window
 
 class ScreenSelectorWindow: NSWindow {
-    private var startPoint: NSPoint = .zero
-    private var selectionRect: NSRect = .zero
-    private var overlayView: SelectorOverlayView!
     var onCapture: ((NSImage?) -> Void)?
+    var onCancel: (() -> Void)?
+
+    private var overlayView: SelectorOverlayView!
 
     init() {
-        let screenFrame = NSScreen.main?.frame ?? .zero
+        let screenFrame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         super.init(
             contentRect: screenFrame,
             styleMask: .borderless,
@@ -22,29 +22,36 @@ class ScreenSelectorWindow: NSWindow {
         backgroundColor = .clear
         ignoresMouseEvents = false
         acceptsMouseMovedEvents = true
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         overlayView = SelectorOverlayView(frame: screenFrame)
         overlayView.onCapture = { [weak self] rect in
-            self?.captureArea(rect)
+            self?.handleCapture(rect)
         }
         overlayView.onCancel = { [weak self] in
             self?.close()
-            self?.onCapture?(nil)
+            self?.onCancel?()
         }
         contentView = overlayView
     }
 
-    private func captureArea(_ rect: NSRect) {
+    private func handleCapture(_ rect: NSRect) {
+        // Hide overlay immediately so it doesn't appear in the screenshot
+        overlayView.isHidden = true
         close()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            let image = self?.captureScreen(rect: rect)
+
+        // Small delay to ensure window is fully gone from compositor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            let image = ScreenSelectorWindow.captureRect(rect)
             self?.onCapture?(image)
         }
     }
 
-    private func captureScreen(rect: NSRect) -> NSImage? {
+    static func captureRect(_ rect: NSRect) -> NSImage? {
         guard let screen = NSScreen.main else { return nil }
-        // Convert from AppKit coords (origin bottom-left) to CGImage coords (origin top-left)
+        guard rect.width > 4, rect.height > 4 else { return nil }
+
+        // Convert AppKit coords (y from bottom) → CGImage coords (y from top)
         let screenHeight = screen.frame.height
         let cgRect = CGRect(
             x: rect.minX,
@@ -52,12 +59,21 @@ class ScreenSelectorWindow: NSWindow {
             width: rect.width,
             height: rect.height
         )
-        guard cgRect.width > 4, cgRect.height > 4 else { return nil }
-        guard let cgImage = CGWindowListCreateImage(cgRect, .optionOnScreenOnly, kCGNullWindowID, [.boundsIgnoreFraming, .bestResolution]) else { return nil }
-        let image = NSImage(cgImage: cgImage, size: rect.size)
-        return image
+
+        guard let cgImage = CGWindowListCreateImage(
+            cgRect,
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            [.boundsIgnoreFraming, .bestResolution]
+        ) else {
+            return nil
+        }
+
+        return NSImage(cgImage: cgImage, size: rect.size)
     }
 }
+
+// MARK: - Overlay drawing view
 
 class SelectorOverlayView: NSView {
     var onCapture: ((NSRect) -> Void)?
@@ -69,31 +85,40 @@ class SelectorOverlayView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .crosshair)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        // Dim background
-        NSColor.black.withAlphaComponent(0.35).setFill()
-        NSBezierPath(rect: bounds).fill()
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+        // Dim entire screen
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.4).cgColor)
+        ctx.fill(bounds)
 
         if isDragging && currentRect.width > 2 && currentRect.height > 2 {
-            // Clear selection area
-            NSGraphicsContext.current?.cgContext.clear(currentRect)
+            // Punch out the selected area (transparent)
+            ctx.clear(currentRect)
 
-            // Selection border
-            let border = NSBezierPath(rect: currentRect.insetBy(dx: 1, dy: 1))
-            NSColor.white.withAlphaComponent(0.9).setStroke()
-            border.lineWidth = 1.5
-            border.stroke()
+            // White border around selection
+            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.stroke(currentRect.insetBy(dx: 0.75, dy: 0.75))
 
-            // Dimension label
+            // Dimension label above selection
             let label = "\(Int(currentRect.width)) × \(Int(currentRect.height))"
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.white
+                .foregroundColor: NSColor.white,
+                .backgroundColor: NSColor.black.withAlphaComponent(0.5)
             ]
-            let labelSize = (label as NSString).size(withAttributes: attrs)
-            var labelOrigin = NSPoint(x: currentRect.minX + 4, y: currentRect.maxY + 4)
-            if labelOrigin.y + labelSize.height > bounds.maxY { labelOrigin.y = currentRect.minY - labelSize.height - 4 }
-            (label as NSString).draw(at: labelOrigin, withAttributes: attrs)
+            let nsLabel = label as NSString
+            let size = nsLabel.size(withAttributes: attrs)
+            var origin = NSPoint(x: currentRect.minX, y: currentRect.maxY + 4)
+            if origin.y + size.height > bounds.maxY {
+                origin.y = max(0, currentRect.minY - size.height - 4)
+            }
+            nsLabel.draw(at: origin, withAttributes: attrs)
         }
     }
 
@@ -101,25 +126,26 @@ class SelectorOverlayView: NSView {
         startPoint = convert(event.locationInWindow, from: nil)
         isDragging = true
         currentRect = .zero
-        setNeedsDisplay(bounds)
+        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
-        let current = convert(event.locationInWindow, from: nil)
-        let x = min(startPoint.x, current.x)
-        let y = min(startPoint.y, current.y)
-        let w = abs(current.x - startPoint.x)
-        let h = abs(current.y - startPoint.y)
-        currentRect = NSRect(x: x, y: y, width: w, height: h)
-        setNeedsDisplay(bounds)
+        let pt = convert(event.locationInWindow, from: nil)
+        currentRect = NSRect(
+            x: min(startPoint.x, pt.x),
+            y: min(startPoint.y, pt.y),
+            width: abs(pt.x - startPoint.x),
+            height: abs(pt.y - startPoint.y)
+        )
+        needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
         isDragging = false
-        if currentRect.width > 10 && currentRect.height > 10 {
+        if currentRect.width > 8 && currentRect.height > 8 {
             onCapture?(currentRect)
         } else {
-            setNeedsDisplay(bounds)
+            needsDisplay = true
         }
     }
 
@@ -132,8 +158,7 @@ class SelectorOverlayView: NSView {
 
 extension NSImage {
     func pngBase64() -> String? {
-        guard let data = pngData() else { return nil }
-        return data.base64EncodedString()
+        pngData()?.base64EncodedString()
     }
 
     func pngData() -> Data? {
