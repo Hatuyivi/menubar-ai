@@ -36,12 +36,28 @@ jobs:
 
           cp Sources/App/Resources/Info.plist "${APP_DIR}/Contents/Info.plist"
 
-          cat > "${APP_DIR}/Contents/PkgInfo" <<'EOF'
-          APPL????
-          EOF
+          printf 'APPL????' > "${APP_DIR}/Contents/PkgInfo"
 
-          echo "App bundle created at ${APP_DIR}"
-          ls -la "${APP_DIR}/Contents/"
+          echo "App bundle structure:"
+          find "${APP_DIR}" -type f
+
+      - name: Ad-hoc code sign
+        run: |
+          APP_DIR=".build/release/MenuBarAI.app"
+
+          # Sign all binaries and frameworks inside the bundle first
+          find "${APP_DIR}" -type f \( -name "*.dylib" -o -name "*.framework" \) | while read f; do
+            codesign --force --sign - "$f" 2>/dev/null || true
+          done
+
+          # Sign the main executable
+          codesign --force --sign - "${APP_DIR}/Contents/MacOS/MenuBarAI"
+
+          # Sign the entire bundle
+          codesign --force --deep --sign - "${APP_DIR}"
+
+          # Verify
+          codesign --verify --deep --strict "${APP_DIR}" && echo "Signature OK" || echo "Signature warning (non-fatal)"
 
       - name: Create DMG
         run: |
@@ -61,8 +77,10 @@ jobs:
             -format UDZO \
             "${DMG_NAME}"
 
-          echo "DMG created: ${DMG_NAME}"
-          ls -lh "${DMG_NAME}"
+          # Remove quarantine attribute from DMG
+          xattr -cr "${DMG_NAME}" || true
+
+          echo "DMG size: $(du -sh ${DMG_NAME})"
 
       - name: Upload DMG as artifact
         uses: actions/upload-artifact@v4
@@ -91,6 +109,11 @@ jobs:
             2. Open DMG → drag app to Applications
             3. Launch — icon appears in menu bar
             4. Grant Screen Recording permission when prompted
+
+            > **If macOS says "damaged":** Right-click the app → Open, or run in Terminal:
+            > ```bash
+            > xattr -cr /Applications/MenuBarAI.app
+            > ```
           files: MenuBarAI.dmg
           draft: false
           prerelease: false
