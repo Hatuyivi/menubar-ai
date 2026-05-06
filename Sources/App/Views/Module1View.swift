@@ -10,6 +10,9 @@ class Module1ViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var prompt: String = "Extract and list all numbers visible in this image. Return only the numbers found, separated by spaces."
 
+    // Strong reference — prevents ARC from releasing the window while it's shown
+    private var selectorWindow: ScreenSelectorWindow?
+
     var availableModels: [AIModel] {
         guard APIKeys.hasKey(for: selectedProvider) else { return [] }
         if selectedProvider == .cloudflare && !hasCloudflareAccountId { return [] }
@@ -33,14 +36,35 @@ class Module1ViewModel: ObservableObject {
         result = ""
         errorMessage = nil
 
-        let window = ScreenSelectorWindow()
-        window.onCapture = { [weak self] image in
-            DispatchQueue.main.async {
-                self?.capturedImage = image
+        // Close the menubar popover so it doesn't appear in the screenshot
+        (NSApp.delegate as? AppDelegate)?.closePopover()
+
+        // Brief delay to let the popover fully close before showing overlay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+
+            let window = ScreenSelectorWindow()
+            // Keep strong reference so ARC doesn't release the window
+            self.selectorWindow = window
+
+            window.onCapture = { [weak self] image in
+                DispatchQueue.main.async {
+                    self?.capturedImage = image
+                    self?.selectorWindow = nil  // Release after capture
+                    // Re-open the popover
+                    (NSApp.delegate as? AppDelegate)?.openPopover()
+                }
             }
+            window.onCancel = { [weak self] in
+                DispatchQueue.main.async {
+                    self?.selectorWindow = nil
+                    (NSApp.delegate as? AppDelegate)?.openPopover()
+                }
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(window.contentView)
         }
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(window.contentView)
     }
 
     func recognize() async {
@@ -82,13 +106,11 @@ struct Module1View: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
 
-                // Provider selector
                 ProviderSelector(
                     selectedProvider: $vm.selectedProvider,
                     onSelect: vm.selectProvider
                 )
 
-                // Model selector
                 ModelPickerView(
                     models: vm.availableModels,
                     selectedModel: $vm.selectedModel,
@@ -97,7 +119,6 @@ struct Module1View: View {
 
                 Divider()
 
-                // Prompt customization
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Prompt", systemImage: "text.bubble")
                         .font(.system(size: 12, weight: .medium))
@@ -113,7 +134,6 @@ struct Module1View: View {
 
                 Divider()
 
-                // Capture button
                 Button(action: vm.captureScreen) {
                     Label("Select Screen Area", systemImage: "viewfinder.circle")
                         .frame(maxWidth: .infinity)
@@ -123,7 +143,6 @@ struct Module1View: View {
                 .disabled(vm.selectedModel == nil)
                 .help(vm.selectedModel == nil ? "Configure an API key first" : "Click and drag to select a screen area")
 
-                // Captured image preview
                 if let image = vm.capturedImage {
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Captured", systemImage: "photo")
@@ -153,7 +172,6 @@ struct Module1View: View {
                     }
                 }
 
-                // Result
                 if !vm.result.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -161,7 +179,10 @@ struct Module1View: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.secondary)
                             Spacer()
-                            Button(action: { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(vm.result, forType: .string) }) {
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(vm.result, forType: .string)
+                            }) {
                                 Label("Copy", systemImage: "doc.on.doc")
                                     .font(.system(size: 11))
                             }
@@ -178,7 +199,6 @@ struct Module1View: View {
                     }
                 }
 
-                // Error
                 if let error = vm.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.system(size: 12))
