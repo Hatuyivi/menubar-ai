@@ -1,0 +1,96 @@
+name: Build macOS DMG
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Create .app bundle
+        run: |
+          APP_NAME="MenuBarAI"
+          APP_DIR=".build/release/${APP_NAME}.app"
+          mkdir -p "${APP_DIR}/Contents/MacOS"
+          mkdir -p "${APP_DIR}/Contents/Resources"
+
+          cp .build/release/App "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+          chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+
+          cp Sources/App/Resources/Info.plist "${APP_DIR}/Contents/Info.plist"
+
+          cat > "${APP_DIR}/Contents/PkgInfo" <<'EOF'
+          APPL????
+          EOF
+
+          echo "App bundle created at ${APP_DIR}"
+          ls -la "${APP_DIR}/Contents/"
+
+      - name: Create DMG
+        run: |
+          APP_NAME="MenuBarAI"
+          DMG_NAME="${APP_NAME}.dmg"
+          APP_PATH=".build/release/${APP_NAME}.app"
+          STAGING_DIR="/tmp/dmg-staging"
+
+          mkdir -p "${STAGING_DIR}"
+          cp -R "${APP_PATH}" "${STAGING_DIR}/"
+          ln -s /Applications "${STAGING_DIR}/Applications"
+
+          hdiutil create \
+            -volname "${APP_NAME}" \
+            -srcfolder "${STAGING_DIR}" \
+            -ov \
+            -format UDZO \
+            "${DMG_NAME}"
+
+          echo "DMG created: ${DMG_NAME}"
+          ls -lh "${DMG_NAME}"
+
+      - name: Upload DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MenuBarAI-dmg
+          path: MenuBarAI.dmg
+          retention-days: 30
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: MenuBar AI v1.0.${{ github.run_number }}
+          body: |
+            ## MenuBar AI — macOS Menubar App
+
+            Native macOS menubar app with:
+            - **Module 1**: Screen OCR — select area on screen, extract numbers via AI
+            - **Module 2**: Floor Plan — detect rooms, place resizable colliders
+
+            Supports Gemini, OpenRouter, and Cloudflare (free-tier models only).
+
+            ### Install
+            1. Download `MenuBarAI.dmg`
+            2. Open DMG → drag app to Applications
+            3. Launch — icon appears in menu bar
+            4. Grant Screen Recording permission when prompted
+          files: MenuBarAI.dmg
+          draft: false
+          prerelease: false
