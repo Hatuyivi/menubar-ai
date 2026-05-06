@@ -101,6 +101,8 @@ class Module2ViewModel: ObservableObject {
     }
 }
 
+// MARK: - Supporting types
+
 struct ColliderRecord: Codable {
     let label: String
     let x, y, width, height: Double
@@ -135,6 +137,8 @@ extension NSColor {
                       Int(rgb.greenComponent * 255),
                       Int(rgb.blueComponent * 255))
     }
+
+    var swiftUIColor: Color { Color(nsColor: self) }
 }
 
 // MARK: - Main Module2 View
@@ -143,7 +147,6 @@ struct Module2View: View {
     @StateObject private var vm = Module2ViewModel()
     @State private var showSaveSheet = false
     @State private var saveName = ""
-    @State private var showSaved = false
 
     var body: some View {
         ScrollView {
@@ -154,7 +157,6 @@ struct Module2View: View {
 
                 Divider()
 
-                // Load image
                 HStack {
                     Button(action: vm.loadImage) {
                         Label("Load Floor Plan", systemImage: "photo.badge.plus")
@@ -173,7 +175,6 @@ struct Module2View: View {
                     }
                 }
 
-                // Floor plan canvas with colliders
                 if let image = vm.floorPlanImage {
                     FloorPlanCanvas(image: image, colliders: $vm.colliders)
                         .frame(height: 220)
@@ -195,20 +196,24 @@ struct Module2View: View {
                     .disabled(vm.isLoading || vm.selectedModel == nil)
                 }
 
-                // Collider list
                 if !vm.colliders.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Colliders (\(vm.colliders.filter { $0.isSelected }.count) selected)")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.secondary)
 
-                        ForEach($vm.colliders) { $collider in
-                            ColliderRow(collider: $collider)
+                        ForEach(vm.colliders.indices, id: \.self) { i in
+                            ColliderRow(
+                                label: vm.colliders[i].label,
+                                color: vm.colliders[i].color,
+                                size: vm.colliders[i].rect.size,
+                                isSelected: vm.colliders[i].isSelected,
+                                onToggle: { vm.colliders[i].isSelected.toggle() }
+                            )
                         }
                     }
                 }
 
-                // Error
                 if let error = vm.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.system(size: 12))
@@ -219,7 +224,6 @@ struct Module2View: View {
                         .cornerRadius(8)
                 }
 
-                // Saved floor plans
                 if !vm.savedFloorPlans.isEmpty {
                     Divider()
                     VStack(alignment: .leading, spacing: 8) {
@@ -283,9 +287,14 @@ struct FloorPlanCanvas: View {
                     .scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                ForEach($colliders) { $collider in
-                    if collider.isSelected {
-                        ResizableColliderView(collider: $collider, canvasSize: geo.size, imageSize: image.size)
+                ForEach(colliders.indices, id: \.self) { i in
+                    if colliders[i].isSelected {
+                        ResizableColliderView(
+                            colliders: $colliders,
+                            index: i,
+                            canvasSize: geo.size,
+                            imageSize: image.size
+                        )
                     }
                 }
             }
@@ -293,90 +302,116 @@ struct FloorPlanCanvas: View {
     }
 }
 
+// MARK: - Resizable collider overlay
+
 struct ResizableColliderView: View {
-    @Binding var collider: RoomCollider
+    @Binding var colliders: [RoomCollider]
+    let index: Int
     let canvasSize: CGSize
     let imageSize: CGSize
 
-    private var scale: CGSize {
-        let sw = canvasSize.width / imageSize.width
-        let sh = canvasSize.height / imageSize.height
-        let s = min(sw, sh)
-        return CGSize(width: s, height: s)
+    private var scale: CGFloat {
+        min(canvasSize.width / imageSize.width, canvasSize.height / imageSize.height)
     }
 
     private var scaledRect: CGRect {
-        CGRect(
-            x: collider.rect.minX * scale.width,
-            y: collider.rect.minY * scale.height,
-            width: collider.rect.width * scale.width,
-            height: collider.rect.height * scale.height
+        let r = colliders[index].rect
+        return CGRect(
+            x: r.minX * scale,
+            y: r.minY * scale,
+            width: r.width * scale,
+            height: r.height * scale
         )
+    }
+
+    private var colliderColor: Color {
+        Color(nsColor: colliders[index].color)
+    }
+
+    private var solidColor: Color {
+        Color(nsColor: colliders[index].color.withAlphaComponent(1))
     }
 
     var body: some View {
         let sr = scaledRect
+        let label = colliders[index].label
+
         ZStack {
             Rectangle()
-                .fill(Color(collider.color))
+                .fill(colliderColor)
                 .frame(width: sr.width, height: sr.height)
+                .overlay(Rectangle().stroke(solidColor, lineWidth: 1.5))
                 .overlay(
-                    Rectangle().stroke(Color(collider.color.withAlphaComponent(1)), lineWidth: 1.5)
-                )
-                .overlay(
-                    Text(collider.label)
-                        .font(.system(size: min(10, sr.width / 5)))
+                    Text(label)
+                        .font(.system(size: min(10, max(8, sr.width / 6))))
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.6), radius: 1)
                         .padding(3),
                     alignment: .topLeading
                 )
-                .offset(x: sr.minX + sr.width / 2 - canvasSize.width / 2,
-                        y: sr.minY + sr.height / 2 - canvasSize.height / 2)
+                .position(
+                    x: sr.minX + sr.width / 2,
+                    y: sr.minY + sr.height / 2
+                )
 
             // Corner handles
             ForEach(Corner.allCases, id: \.self) { corner in
-                CornerHandle(corner: corner)
-                    .offset(x: sr.minX + corner.x(sr) - canvasSize.width / 2,
-                            y: sr.minY + corner.y(sr) - canvasSize.height / 2)
-                    .gesture(DragGesture()
-                        .onChanged { drag in
-                            var r = collider.rect
-                            let dx = drag.translation.width / scale.width
-                            let dy = drag.translation.height / scale.height
-                            switch corner {
-                            case .topLeft:
-                                r.origin.x += dx; r.size.width -= dx
-                                r.origin.y += dy; r.size.height -= dy
-                            case .topRight:
-                                r.size.width += dx
-                                r.origin.y += dy; r.size.height -= dy
-                            case .bottomLeft:
-                                r.origin.x += dx; r.size.width -= dx
-                                r.size.height += dy
-                            case .bottomRight:
-                                r.size.width += dx; r.size.height += dy
+                CornerHandle()
+                    .position(
+                        x: sr.minX + corner.x(sr),
+                        y: sr.minY + corner.y(sr)
+                    )
+                    .gesture(
+                        DragGesture()
+                            .onChanged { drag in
+                                let dx = drag.translation.width / scale
+                                let dy = drag.translation.height / scale
+                                var r = colliders[index].rect
+                                switch corner {
+                                case .topLeft:
+                                    r.origin.x += dx; r.size.width -= dx
+                                    r.origin.y += dy; r.size.height -= dy
+                                case .topRight:
+                                    r.size.width += dx
+                                    r.origin.y += dy; r.size.height -= dy
+                                case .bottomLeft:
+                                    r.origin.x += dx; r.size.width -= dx
+                                    r.size.height += dy
+                                case .bottomRight:
+                                    r.size.width += dx; r.size.height += dy
+                                }
+                                if r.width > 10 && r.height > 10 {
+                                    colliders[index].rect = r
+                                }
                             }
-                            if r.width > 10 && r.height > 10 { collider.rect = r }
-                        }
                     )
             }
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height)
+    }
+}
+
+// MARK: - Corner handle
+
+enum Corner: CaseIterable {
+    case topLeft, topRight, bottomLeft, bottomRight
+
+    func x(_ r: CGRect) -> CGFloat {
+        switch self {
+        case .topLeft, .bottomLeft: return r.minX
+        case .topRight, .bottomRight: return r.maxX
+        }
+    }
+
+    func y(_ r: CGRect) -> CGFloat {
+        switch self {
+        case .topLeft, .topRight: return r.minY
+        case .bottomLeft, .bottomRight: return r.maxY
         }
     }
 }
 
-enum Corner: CaseIterable {
-    case topLeft, topRight, bottomLeft, bottomRight
-    func x(_ r: CGRect) -> CGFloat {
-        switch self { case .topLeft, .bottomLeft: return 0; case .topRight, .bottomRight: return r.width }
-    }
-    func y(_ r: CGRect) -> CGFloat {
-        switch self { case .topLeft, .topRight: return 0; case .bottomLeft, .bottomRight: return r.height }
-    }
-}
-
 struct CornerHandle: View {
-    let corner: Corner
     var body: some View {
         Circle()
             .fill(Color.white)
@@ -385,21 +420,34 @@ struct CornerHandle: View {
     }
 }
 
+// MARK: - Collider list row
+
 struct ColliderRow: View {
-    @Binding var collider: RoomCollider
+    let label: String
+    let color: NSColor
+    let size: CGSize
+    let isSelected: Bool
+    let onToggle: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Toggle("", isOn: $collider.isSelected)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
+            Button(action: onToggle) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.plain)
+
             Circle()
-                .fill(Color(collider.color.withAlphaComponent(1)))
+                .fill(Color(nsColor: color.withAlphaComponent(1)))
                 .frame(width: 12, height: 12)
-            Text(collider.label)
+
+            Text(label)
                 .font(.system(size: 12))
+
             Spacer()
-            Text("\(Int(collider.rect.width))×\(Int(collider.rect.height))")
+
+            Text("\(Int(size.width))×\(Int(size.height))")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(.secondary)
         }
