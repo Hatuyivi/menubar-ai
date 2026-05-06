@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>MenuBarAI</string>
+    <key>CFBundleDisplayName</key>
+    <string>MenuBar AI</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.menubarai.app</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>MenuBar AI needs screen capture access to let you select and analyze areas of your screen for number recognition.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MenuBar AI uses Apple Events for screen capture functionality.</string>
+</dict>
+</plist>
