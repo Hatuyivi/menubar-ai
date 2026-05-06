@@ -23,7 +23,6 @@ struct CloudflareService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let base64 = imageData.base64EncodedString()
         let body: [String: Any] = [
             "prompt": prompt,
             "image": Array(imageData)
